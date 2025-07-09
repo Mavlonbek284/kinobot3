@@ -53,7 +53,7 @@ def obuna_tekshir(user_id):
             return False
     return True
 
-# Obuna qilish uchun tugmalar (kanal nomisiz)
+# Obuna qilish uchun tugmalar
 def send_obuna_ilang(chat_id):
     with open(CHANNELS_FILE, 'r') as f:
         channels = json.load(f)["channels"]
@@ -183,5 +183,6 @@ def show_stats(message):
     except Exception as e:
         bot.send_message(message.chat.id, f"Xatolik: {e}")
 
+# Ishga tushirish
 print("✅ Bot ishlayapti...")
 bot.polling(none_stop=True)
