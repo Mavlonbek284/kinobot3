@@ -1,47 +1,44 @@
 import telebot
 import json
 import os
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+# Token va admin ID
 BOT_TOKEN = '8186601135:AAFy2WbGO7mzCJHrEV9jYoOOFHxunh3DbOc'
 bot = telebot.TeleBot(BOT_TOKEN)
-
 ADMIN_ID = 5091776192
 ADMINS = [ADMIN_ID]
+
+# Fayl nomlari
 KINOLAR_FILE = 'kinolar.json'
 USERS_FILE = 'users.json'
 CHANNELS_FILE = 'channels.json'
 
+# Foydalanuvchilar va admin holati
 foydalanuvchilar = set()
 kutilayotganlar = {}
 
-# Majburiy kanallar ro‘yxati
+# Kanal ro‘yxati
 DEFAULT_CHANNELS = [
     {"username": "@Daqiqauzb24", "name": "Daqiqauzb24"},
     {"username": "@TarjimaKinoPlusbot", "name": "TarjimaKinoPlusbot"}
 ]
 
-# Kanallar faylini yaratish (agar mavjud bo‘lmasa)
-def tekshir_va_yarat_channel_file():
-    if not os.path.exists(CHANNELS_FILE):
-        with open(CHANNELS_FILE, 'w') as f:
-            json.dump({"channels": DEFAULT_CHANNELS}, f, indent=4)
+# Kanallar fayli mavjud bo‘lmasa, yaratiladi
+if not os.path.exists(CHANNELS_FILE):
+    with open(CHANNELS_FILE, 'w') as f:
+        json.dump({"channels": DEFAULT_CHANNELS}, f, indent=4)
 
-tekshir_va_yarat_channel_file()
-
-# Kinolarni yuklash/saqlash
+# Kinolarni yuklash va saqlash
 def yukla_kinolar():
-    if os.path.exists(KINOLAR_FILE):
-        with open(KINOLAR_FILE, 'r') as f:
-            return json.load(f)
-    return {}
+    return json.load(open(KINOLAR_FILE)) if os.path.exists(KINOLAR_FILE) else {}
 
-def saqla_kinolar(kinolar):
-    with open(KINOLAR_FILE, 'w') as f:
-        json.dump(kinolar, f, indent=2)
+def saqla_kinolar(k):
+    json.dump(k, open(KINOLAR_FILE, 'w'), indent=2)
 
 KINOLAR = yukla_kinolar()
 
-# Obuna tekshiruv
+# Obuna tekshirish funksiyasi
 def obuna_tekshir(user_id):
     if user_id in ADMINS:
         return True
@@ -56,6 +53,17 @@ def obuna_tekshir(user_id):
             return False
     return True
 
+# Obuna qilish uchun tugmalar (kanal nomisiz)
+def send_obuna_ilang(chat_id):
+    with open(CHANNELS_FILE, 'r') as f:
+        channels = json.load(f)["channels"]
+    kb = InlineKeyboardMarkup(row_width=1)
+    for ch in channels:
+        kb.add(InlineKeyboardButton("+Obuna bo‘ling", url=f"https://t.me/{ch['username'].lstrip('@')}"))
+    kb.add(InlineKeyboardButton("✅ Obunani tekshirish", callback_data="check_subs"))
+    bot.send_message(chat_id, "🔒 Botdan foydalanish uchun quyidagi kanal(lar)ga obuna bo‘ling:", reply_markup=kb)
+
+# /start komandasi
 @bot.message_handler(commands=['start'])
 def boshlash(message):
     user_id = str(message.chat.id)
@@ -70,21 +78,32 @@ def boshlash(message):
         with open(USERS_FILE, 'w') as f:
             json.dump(users, f, indent=4)
 
-    bot.send_message(message.chat.id, "🎬 Kino kodini kiriting (masalan: 1, 2, 3):")
+    if not obuna_tekshir(message.chat.id):
+        send_obuna_ilang(message.chat.id)
+    else:
+        bot.send_message(message.chat.id, "🎬 Kino kodini kiriting (masalan: 1, 2, 3):")
 
-@bot.message_handler(func=lambda m: m.text.isdigit())
+# Obuna tekshirish tugmasi
+@bot.callback_query_handler(func=lambda c: c.data == "check_subs")
+def obuna_callback(c):
+    uid = c.from_user.id
+    cid = c.message.chat.id
+    if obuna_tekshir(uid):
+        bot.answer_callback_query(c.id, "✅ Obuna tasdiqlandi!")
+        bot.send_message(cid, "🎬 Endi kino kodini kiriting:")
+    else:
+        bot.answer_callback_query(c.id, "❌ Obuna hali aniqlanmadi.")
+        send_obuna_ilang(cid)
+
+# Kino ko‘rsatish
+@bot.message_handler(func=lambda m: m.text and m.text.isdigit())
 def kino_ber(message):
     user_id = message.from_user.id
     kod = message.text.strip()
     foydalanuvchilar.add(user_id)
 
     if not obuna_tekshir(user_id):
-        with open(CHANNELS_FILE, "r") as f:
-            channels = json.load(f)["channels"]
-        matn = "🔒 Botdan foydalanish uchun quyidagi kanal(lar)ga obuna bo‘ling:\n\n"
-        matn += "\n".join([f"👉 {ch['name']} ({ch['username']})" for ch in channels])
-        matn += "\n\n✅ Obunadan so‘ng qayta /start buyrug‘ini bering."
-        bot.send_message(message.chat.id, matn)
+        send_obuna_ilang(message.chat.id)
         return
 
     if kod in KINOLAR:
@@ -93,6 +112,7 @@ def kino_ber(message):
     else:
         bot.send_message(message.chat.id, "❌ Bunday koddagi kino topilmadi.")
 
+# Admin video yuboradi
 @bot.message_handler(content_types=['video'])
 def admin_video_qabul(message):
     if message.from_user.id == ADMIN_ID:
@@ -102,6 +122,7 @@ def admin_video_qabul(message):
     else:
         bot.reply_to(message, "❌ Siz admin emassiz.")
 
+# Admin nom va yil kiritadi
 @bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID and m.from_user.id in kutilayotganlar)
 def admin_nom_yil(message):
     state = kutilayotganlar.get(message.from_user.id)
@@ -120,6 +141,7 @@ def admin_nom_yil(message):
         bot.send_message(message.chat.id, f"✅ Kino saqlandi! ID: {yangi_id}")
         del kutilayotganlar[message.from_user.id]
 
+# Kino o‘chirish komandasi
 @bot.message_handler(commands=['delete'])
 def delete_kino(message):
     try:
@@ -133,6 +155,7 @@ def delete_kino(message):
     except Exception as e:
         bot.reply_to(message, f"Xatolik: {e}\nTo‘g‘ri format: /delete 1")
 
+# Kino tahrirlash komandasi
 @bot.message_handler(commands=['edit'])
 def edit_kino(message):
     try:
@@ -148,6 +171,7 @@ def edit_kino(message):
     except Exception as e:
         bot.reply_to(message, f"Xatolik: {e}\nTo‘g‘ri format:\n/edit 1 | Yangi nom | 2025")
 
+# Statistika
 @bot.message_handler(commands=['stats'])
 def show_stats(message):
     try:
@@ -155,51 +179,9 @@ def show_stats(message):
         with open(USERS_FILE, "r") as f:
             users = json.load(f)
         total_users = len(users)
-        text = f"📊 Statistika:\n👥 Foydalanuvchilar: {total_users}\n🎞 Kinolar: {total_kinolar}"
-        bot.reply_to(message, text)
+        bot.send_message(message.chat.id, f"📊 Statistika:\n👤 Foydalanuvchilar: {total_users}\n🎥 Kinolar: {total_kinolar}")
     except Exception as e:
-        bot.reply_to(message, f"Xatolik: {e}")
+        bot.send_message(message.chat.id, f"Xatolik: {e}")
 
-@bot.message_handler(commands=['addchannel'])
-def add_channel(message):
-    if message.chat.id not in ADMINS:
-        return
-    try:
-        _, username, name = message.text.split(' ', 2)
-        with open(CHANNELS_FILE, "r") as f:
-            data = json.load(f)
-        data["channels"].append({"username": username, "name": name})
-        with open(CHANNELS_FILE, "w") as f:
-            json.dump(data, f, indent=4)
-        bot.reply_to(message, f"✅ Kanal qo‘shildi: {name} ({username})")
-    except Exception as e:
-        bot.reply_to(message, f"❌ Xatolik: {e}\nFoydalanish: /addchannel @username Nomi")
-
-@bot.message_handler(commands=['delchannel'])
-def delete_channel(message):
-    if message.chat.id not in ADMINS:
-        return
-    try:
-        _, username = message.text.split()
-        with open(CHANNELS_FILE, "r") as f:
-            data = json.load(f)
-        data["channels"] = [ch for ch in data["channels"] if ch["username"] != username]
-        with open(CHANNELS_FILE, "w") as f:
-            json.dump(data, f, indent=4)
-        bot.reply_to(message, f"🗑 O‘chirildi: {username}")
-    except Exception as e:
-        bot.reply_to(message, f"Xatolik: {e}\nFoydalanish: /delchannel @username")
-
-@bot.message_handler(commands=['channels'])
-def show_channels(message):
-    if message.chat.id not in ADMINS:
-        return
-    with open(CHANNELS_FILE, "r") as f:
-        chs = json.load(f)["channels"]
-    msg = "📢 Obuna kanallari:\n"
-    for ch in chs:
-        msg += f"🔹 {ch['name']} - {ch['username']}\n"
-    bot.reply_to(message, msg)
-
-print("✅ Bot ishga tushdi...")
+print("✅ Bot ishlayapti...")
 bot.polling(none_stop=True)
